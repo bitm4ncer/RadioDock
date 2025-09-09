@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RadioDock</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+
+  <div class="container">
+    <!-- Player Section -->
+    <div class="player-section">
+      <section class="player-card" id="playerCard">
+   <div class="player-info">
+        <div class="station-logo-container">
+          <img id="stationLogo" class="station-logo" src="" alt="" style="display: none;">
+          <div id="stationInitials" class="station-initials"></div>
+        </div>
+        
+        <div class="station-details">
+          <div id="stationName" class="station-name">No station selected</div>
+          <div id="nowPlaying" class="now-playing">
+            <span id="nowPlayingText" class="now-playing-text"></span>
+          </div>
+          <div class="station-country-line">
+            <div id="stationCountry" class="station-country"></div>
+            <a id="visitStationBtn" class="visit-btn" href="#" target="_blank" style="display: none;">
+              Visit Station
+            </a>
+            <button id="addToFavoritesBtn" class="btn-icon btn-add-favorite" title="Add to favorites" style="display: none;">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="heart-icon">
+                <path d="M16.5 3C19.5376 3 22 5.5 22 9C22 16 14.5 20 12 21.5C9.5 20 2 16 2 9C2 5.5 4.5 3 7.5 3C9.35997 3 11 4 12 5C13 4 14.64 3 16.5 3Z"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="player-controls">
+        <button id="playPauseBtn" class="play-pause-btn" title="Play/Pause">
+          <span class="play-icon">
+            <svg width="100%" height="100%" viewBox="0 0 24 24" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+                <g transform="matrix(0.633173,0,0,0.633173,4.26264,4.40187)">
+                    <path d="M19.376,12.416L8.777,19.482C8.548,19.635 8.237,19.573 8.084,19.343C8.029,19.261 8,19.165 8,19.066L8,4.934C8,4.658 8.224,4.434 8.5,4.434C8.599,4.434 8.695,4.464 8.777,4.518L19.376,11.584C19.606,11.737 19.668,12.048 19.515,12.277C19.478,12.332 19.431,12.38 19.376,12.416Z" style="fill-rule:nonzero;"/>
+                </g>
+            </svg>
+          </span>
+          <span class="pause-icon" style="display: none;">
+            <svg width="100%" height="100%" viewBox="0 0 24 24" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+                <g transform="matrix(0.551906,0,0,0.551906,5.61846,5.51123)">
+                    <path d="M8.493,4.799L8.493,18.715C8.493,19.185 8.112,19.566 7.643,19.566L5.942,19.566C5.472,19.566 5.091,19.185 5.091,18.715L5.091,4.799C5.091,4.329 5.472,3.948 5.942,3.948L7.643,3.948C8.112,3.948 8.493,4.329 8.493,4.799Z"/>
+                    <g transform="matrix(1,0,0,1,9.5414,0)">
+                        <path d="M8.493,4.799L8.493,18.715C8.493,19.185 8.112,19.566 7.643,19.566L5.942,19.566C5.472,19.566 5.091,19.185 5.091,18.715L5.091,4.799C5.091,4.329 5.472,3.948 5.942,3.948L7.643,3.948C8.112,3.948 8.493,4.329 8.493,4.799Z"/>
+                    </g>
+                </g>
+            </svg>
+          </span>
+          <span class="buffering-icon" style="display: none;">
+            <div class="spinner">
+            <span></span><span></span><span></span>
+            </div>
+          </span>
+        </button>
+      </div>
+      
+   
+      </section>
+
+      <!-- Volume Controls -->
+      <div class="volume-controls volume-100">
+        <div class="volume-dot" data-volume="100"></div>
+        <div class="volume-dot" data-volume="80"></div>
+        <div class="volume-dot" data-volume="60"></div>
+        <div class="volume-dot" data-volume="40"></div>
+        <div class="volume-dot" data-volume="20"></div>
+      </div>
+    </div>
+
+    <!-- Favorites Section -->
+    <section class="favorites-section">
+      <div class="favorites-header">
+        <div class="list-selector">
+          <div class="list-header">
+            <div class="dock-title">
+              <img src="logo/Logo_Text.svg" alt="RadioDock" class="dock-logo">
+              
+            </div>
+            <div class="list-dropdown">
+              <button id="listDropdownBtn" class="list-dropdown-btn" title="Switch station list">
+                <span id="currentListName">Favorites</span>
+                <span class="dropdown-arrow">▼</span>
+              </button>
+              <div id="listDropdownMenu" class="list-dropdown-menu" style="display: none;">
+                <div id="listItems" class="list-items"></div>
+                <div class="list-actions">
+                  <button id="addListBtn" class="add-list-btn">
+                    <span class="plus-icon">+</span>
+                    <span>New List</span>
+                  </button>
+                  <button id="importListBtn" class="import-list-btn">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="import-icon">
+                      <path d="M3 19H21V21H3V19ZM13 5.82843V17H11V5.82843L4.92893 11.8995L3.51472 10.4853L12 2L20.4853 10.4853L19.0711 11.8995L13 5.82843Z"></path>
+                    </svg>
+                    <span>Import List</span>
+                  </button>
+                  <input type="file" id="importListFile" accept=".json" style="display: none;">
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="favoritesList" class="favorites-list">
+        <div class="empty-state" id="emptyState">
+          <p>Search stations below to add them!</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Search Section -->
+    <section class="search-section">
+      <div class="search-input-container">
+        <input type="text" id="searchInput" placeholder="Search Stations..." autocomplete="off">
+        <button id="clearSearchBtn" class="clear-search-btn">×</button>
+      </div>
+      
+      <div id="searchFilters" class="search-filters" style="display: none;">
+        <button class="filter-btn active" data-filter="name">Name</button>
+        <button class="filter-btn" data-filter="tag">Genre</button>
+        <button class="filter-btn" data-filter="country">Country</button>
+      </div>
+      
+      <div id="searchResults" class="search-results" style="display: none;">
+        <div class="search-loading" id="searchLoading" style="display: none;">
+          <div class="loading-spinner"></div>
+          <p>Searching stations...</p>
+        </div>
+        
+        <div id="searchResultsList" class="search-results-list"></div>
+        
+        <div class="search-error" id="searchError" style="display: none;">
+          <p>Error loading stations. Please try again.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+  
+  <!-- Toast for notifications -->
+  <div id="toast" class="toast"></div>
+  
+  <!-- New List Modal -->
+  <div id="newListModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Create New Station List</h3>
+        <button id="closeModalBtn" class="modal-close-btn">×</button>
+      </div>
+      <div class="modal-body">
+        <label for="newListNameInput">List Name:</label>
+        <input type="text" id="newListNameInput" placeholder="Enter list name..." maxlength="50">
+        <div id="listNameError" class="error-message" style="display: none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="cancelListBtn" class="btn-secondary">Cancel</button>
+        <button id="createListBtn" class="btn-primary">Create List</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Info Modal -->
+  <div id="infoModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>RadioDock v.1.0</h3>
+        <button id="closeInfoModalBtn" class="modal-close-btn">×</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom: 16px;">RadioDock is a Chromium Browser extension for discovering, playing and managing your favorite radio stations from around the world.</p>
+        <p style="margin-bottom: 16px;">This extension integrates with the  <a href="https://www.radio-browser.info" target="_blank" class="text-link"><strong>Radio Browser</strong> </a>community database, which provides access to thousands of radio stations worldwide through their open API.</p>
+ 
+        <div class="modal-links">
+     
+          <a href="https://buymeacoffee.com/bitmancer" target="_blank" class="modal-link">
+            Buy me a coffee
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Confirmation Modal -->
+  <div id="confirmModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="confirmTitle">Confirm Action</h3>
+        <button id="closeConfirmModalBtn" class="modal-close-btn">×</button>
+      </div>
+      <div class="modal-body">
+        <p id="confirmMessage">Are you sure you want to proceed?</p>
+      </div>
+      <div class="modal-footer">
+        <button id="cancelConfirmBtn" class="btn-secondary">Cancel</button>
+        <button id="confirmActionBtn" class="btn-primary btn-danger">Confirm</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Prompt Modal -->
+  <div id="promptModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="promptTitle">Enter Value</h3>
+        <button id="closePromptModalBtn" class="modal-close-btn">×</button>
+      </div>
+      <div class="modal-body">
+        <label for="promptInput" id="promptLabel">Enter value:</label>
+        <input type="text" id="promptInput" maxlength="50">
+        <div id="promptError" class="error-message" style="display: none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="cancelPromptBtn" class="btn-secondary">Cancel</button>
+        <button id="confirmPromptBtn" class="btn-primary">OK</button>
+      </div>
+    </div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>
