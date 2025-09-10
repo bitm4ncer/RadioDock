@@ -106,14 +106,6 @@
       "id": "d8dc455e-761f-436c-aa71-5de8b689690c",
       "name": "THF Radio",
       "url": "https://thfradio2.out.airtime.pro/thfradio2_a"
-    },
-    {
-      "countrycode": "NL",
-      "favicon": "https://www.echobox.radio/favicon.ico",
-      "homepage": "https://www.echobox.radio/",
-      "id": "0d5e95f3-8455-47db-b0c5-a72230386b61",
-      "name": "Echobox Radio",
-      "url": "https://play.streamnerd.nl/echobox/echobox/icecast.audio"
     }
   ]
 }
