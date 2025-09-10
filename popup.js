@@ -239,7 +239,6 @@ class RadioDock {
     // Listen for messages from background/offscreen
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
       chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        console.log('Popup received message:', message.type);
         this.handleRuntimeMessage(message);
         sendResponse({ received: true }); // Acknowledge receipt
         return true; // Keep message channel open
@@ -248,7 +247,6 @@ class RadioDock {
   }
   
   async loadStoredData() {
-    console.log('Starting loadStoredData...');
     
     // Optimized retry strategy with exponential backoff
     const maxRetries = 3;
@@ -256,7 +254,6 @@ class RadioDock {
     
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       const delay = baseDelay * Math.pow(2, attempt); // 50ms, 100ms, 200ms
-      console.log(`Attempt ${attempt + 1}/${maxRetries}: Trying to load from Chrome storage...`);
       
       try {
         // Use Promise.race for timeout protection
@@ -276,11 +273,9 @@ class RadioDock {
           if (result.stationLists && typeof result.stationLists === 'object') {
             this.stationLists = result.stationLists;
             this.currentListId = result.currentListId || 'favorites';
-            console.log('Loaded station lists from Chrome storage');
           } 
           // Handle legacy favorites data (migration)
           else if (Array.isArray(result.favorites)) {
-            console.log('Migrating legacy favorites to new structure');
             this.stationLists = {
               'favorites': {
                 id: 'favorites',
@@ -297,12 +292,6 @@ class RadioDock {
           this.currentStation = result.currentStation || null;
           this.isPlaying = result.isPlaying || false;
           
-          console.log('Successfully loaded data from Chrome storage:', { 
-            favorites: this.favorites.length, 
-            currentStation: !!this.currentStation,
-            currentListId: this.currentListId,
-            listsCount: Object.keys(this.stationLists).length
-          });
           
           // Load community radios and sync state in parallel
           const [,] = await Promise.allSettled([
@@ -322,7 +311,6 @@ class RadioDock {
         }
         
       } catch (error) {
-        console.log(`Chrome storage attempt ${attempt + 1}/${maxRetries} failed:`, error.message);
         
         // Check for specific error types that shouldn't be retried
         if (error.message.includes('Extension context invalidated') || 
@@ -333,7 +321,6 @@ class RadioDock {
         
         // Wait before retrying (except on last attempt)
         if (attempt < maxRetries - 1) {
-          console.log(`Waiting ${delay}ms before retry...`);
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }
@@ -371,11 +358,9 @@ class RadioDock {
       if (stationLists) {
         this.stationLists = JSON.parse(stationLists);
         this.currentListId = currentListId || 'favorites';
-        console.log('Loaded station lists from localStorage');
       } 
       // Handle legacy favorites data (migration)
       else if (favorites) {
-        console.log('Migrating legacy localStorage favorites to new structure');
         this.stationLists = {
           'favorites': {
             id: 'favorites',
@@ -392,7 +377,6 @@ class RadioDock {
       this.currentStation = currentStation ? JSON.parse(currentStation) : null;
       this.isPlaying = isPlaying === 'true';
       
-      console.log('Loaded data from localStorage');
     } catch (error) {
       console.error('localStorage fallback failed:', error);
       this.stationLists = {
@@ -445,7 +429,6 @@ class RadioDock {
     try {
       const response = await fetch(chrome.runtime.getURL('community-radios.json'));
       if (!response.ok) {
-        console.log('community-radios.json not found, skipping');
         return;
       }
       
@@ -464,7 +447,6 @@ class RadioDock {
         lastUpdated: communityData.exportDate
       };
       
-      console.log(`${existingList ? 'Updated' : 'Loaded'} community radios list with ${communityData.stations?.length || 0} stations`);
       
     } catch (error) {
       console.error('Failed to load community-radios.json:', error);
@@ -510,12 +492,6 @@ class RadioDock {
           if (response.metadata) {
             this.updateMetadataDisplay(response.metadata);
           }
-          console.log('Synced playing state from background:', {
-            isPlaying: this.isPlaying,
-            isPaused: response.isPaused,
-            manuallyPaused: this.manuallyPaused,
-            hasMetadata: !!response.metadata
-          });
         }
       }
     } catch (error) {
@@ -562,7 +538,6 @@ class RadioDock {
     if (this.syncInterval) {
       clearInterval(this.syncInterval);
       this.syncInterval = null;
-      console.log('Periodic sync cleared');
     }
   }
   
@@ -572,7 +547,6 @@ class RadioDock {
       this.nowPlaying.classList.remove('show');
       this.nowPlayingText.textContent = '';
       this.nowPlayingText.classList.remove('can-scroll');
-      console.log('Metadata display cleared');
       return;
     }
     
@@ -587,11 +561,6 @@ class RadioDock {
       this.setupHoverScroll();
     }, 50); // Small delay to ensure element is rendered
     
-    console.log('Metadata display updated:', {
-      nowPlaying: displayText,
-      source: metadata.source,
-      channel: metadata.channel
-    });
   }
 
   setupHoverScroll() {
@@ -665,16 +634,13 @@ class RadioDock {
         break;
       case 'STATION_CHANGED':
         // Update current station when changed via context menu
-        console.log('Handling STATION_CHANGED:', message.station.name);
         this.currentStation = message.station;
         this.updatePlayerUI();
         this.renderFavorites(); // Update favorites list to show .playing state
         this.saveData();
-        console.log('Station change UI update complete');
         break;
       case 'METADATA_UPDATE':
         // Handle now playing metadata updates
-        console.log('Received metadata update:', message.metadata);
         this.updateMetadataDisplay(message.metadata);
         break;
     }
@@ -751,7 +717,7 @@ class RadioDock {
       this.stationName.textContent = this.currentStation.name;
       this.stationCountry.textContent = this.formatCountryCode(this.currentStation.countrycode);
       
-      if (this.currentStation.favicon) {
+      if (this.currentStation.favicon && this.isValidFaviconUrl(this.currentStation.favicon)) {
         this.stationLogo.src = this.currentStation.favicon;
         this.stationLogo.style.display = 'block';
         this.stationInitials.style.display = 'none';
@@ -834,7 +800,7 @@ class RadioDock {
       
       return `
         <div class="station-item ${isPlaying ? 'playing' : ''}" data-station-id="${station.id}">
-          ${station.favicon ? 
+          ${station.favicon && this.isValidFaviconUrl(station.favicon) ? 
             `<img class="station-item-logo" src="${station.favicon}" alt="${station.name}">
              <div class="station-item-initials" style="display: none;">${this.getStationInitials(station.name)}</div>` :
             `<div class="station-item-initials">${this.getStationInitials(station.name)}</div>`
@@ -1090,7 +1056,7 @@ class RadioDock {
       
       return `
         <div class="search-item" data-station='${JSON.stringify(stationData).replace(/'/g, "&apos;")}'>
-          ${stationData.favicon ? 
+          ${stationData.favicon && this.isValidFaviconUrl(stationData.favicon) ? 
             `<img class="station-item-logo" src="${stationData.favicon}" alt="${stationData.name}">
              <div class="station-item-initials" style="display: none;">${this.getStationInitials(stationData.name)}</div>` :
             `<div class="station-item-initials">${this.getStationInitials(stationData.name)}</div>`
@@ -1110,6 +1076,9 @@ class RadioDock {
     }).join('');
     
     this.searchResultsList.innerHTML = resultsHTML;
+    
+    // Setup favicon error handling for search results
+    this.setupFaviconErrorHandling(this.searchResultsList);
     
     // Add event listeners to search result items
     this.searchResultsList.querySelectorAll('.search-item').forEach(item => {
@@ -1255,7 +1224,6 @@ class RadioDock {
       });
     }
     
-    console.log(`Volume set to ${volume}%`);
   }
   
   showSearchLoading(show) {
@@ -1885,6 +1853,54 @@ class RadioDock {
       window.open(this.currentStation.homepage, '_blank');
     }
   }
+
+  // Utility function to safely load favicons with error handling
+  setupFaviconErrorHandling(container) {
+    const images = container.querySelectorAll('.station-item-logo');
+    images.forEach(img => {
+      img.onerror = () => {
+        const parent = img.parentElement;
+        if (parent) {
+          img.style.display = 'none';
+          const initials = parent.querySelector('.station-item-initials');
+          if (initials) {
+            initials.style.display = 'flex';
+          }
+        }
+      };
+    });
+  }
+
+  // Utility function to validate and sanitize favicon URLs
+  isValidFaviconUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    
+    try {
+      const urlObj = new URL(url);
+      
+      // Block font files that cause CORS issues (the original problem)
+      const fontExtensions = ['.woff', '.woff2', '.ttf', '.otf', '.eot'];
+      const pathname = urlObj.pathname.toLowerCase();
+      
+      // Check if it's a font file - block these to prevent CORS errors
+      if (fontExtensions.some(ext => pathname.includes(ext))) {
+        return false;
+      }
+      
+      // Block obvious non-image files (but be more permissive than before)
+      const bannedExtensions = ['.js', '.css', '.html', '.xml', '.pdf', '.zip'];
+      if (bannedExtensions.some(ext => pathname.endsWith(ext))) {
+        return false;
+      }
+      
+      // Allow all other URLs - let the browser handle the image loading
+      // If it fails, the onerror handler will show initials instead
+      return true;
+      
+    } catch (e) {
+      return false;
+    }
+  }
 }
 
 // Initialize the application
@@ -1893,7 +1909,6 @@ let app;
 document.addEventListener('DOMContentLoaded', () => {
   try {
     app = new RadioDock();
-    console.log('RadioDock app initialized successfully');
   } catch (error) {
     console.error('Failed to initialize RadioDock app:', error);
     

@@ -5,6 +5,7 @@ let playPromise = null;
 let hls = null;
 let hlsLoaded = false;
 
+
 // Dynamically load HLS.js only when needed
 async function loadHLS() {
   if (hlsLoaded) {
@@ -19,12 +20,10 @@ async function loadHLS() {
       return;
     }
     
-    console.log('Loading HLS.js dynamically...');
     const script = document.createElement('script');
     script.src = 'hls.js';
     script.onload = () => {
       hlsLoaded = true;
-      console.log('HLS.js loaded successfully');
       resolve();
     };
     script.onerror = () => {
@@ -44,49 +43,111 @@ async function loadHLS() {
   });
 }
 
+// Handle playlist files (M3U/PLS) by fetching and parsing them via proxy
+async function resolvePlaylist(url) {
+  const PROXY_BASE_URL = 'https://radiodock-metadata-proxy-1.onrender.com';
+  
+  try {
+    // Use the proxy server to fetch the playlist to avoid CORS issues
+    const params = new URLSearchParams({
+      action: 'fetch_playlist',
+      url: url
+    });
+    
+    const proxyUrl = `${PROXY_BASE_URL}/v1/playlist?${params.toString()}`;
+    const response = await fetch(proxyUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Proxy request failed: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to resolve playlist');
+    }
+    
+    if (!data.streamUrl) {
+      throw new Error('No stream URL found in playlist response');
+    }
+    
+    return data.streamUrl;
+    
+  } catch (error) {
+    // If proxy fails, try direct fetch as fallback (will likely fail with CORS but worth trying)
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch playlist: ${response.status}`);
+      }
+      
+      const text = await response.text();
+      const lines = text.split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('#'));
+      
+      if (lines.length === 0) {
+        throw new Error('No stream URLs found in playlist');
+      }
+      
+      // Return the first valid URL found
+      let streamUrl = lines[0];
+      
+      // If it's a relative URL, make it absolute
+      if (streamUrl.startsWith('/') || !streamUrl.includes('://')) {
+        const baseUrl = new URL(url);
+        if (streamUrl.startsWith('/')) {
+          streamUrl = `${baseUrl.protocol}//${baseUrl.host}${streamUrl}`;
+        } else {
+          streamUrl = `${baseUrl.protocol}//${baseUrl.host}/${streamUrl}`;
+        }
+      }
+      
+      return streamUrl;
+    } catch (fallbackError) {
+      throw new Error(`Playlist resolution failed: ${error.message}`);
+    }
+  }
+}
+
 audioPlayer.addEventListener('loadstart', () => {
-  console.log('Audio loading started');
   notifyPopup('AUDIO_BUFFERING', { station: currentStation });
 });
 
 audioPlayer.addEventListener('waiting', () => {
-  console.log('Audio is buffering');
   notifyPopup('AUDIO_BUFFERING', { station: currentStation });
 });
 
 audioPlayer.addEventListener('canplay', () => {
-  console.log('Audio can start playing');
 });
 
 audioPlayer.addEventListener('canplaythrough', () => {
-  console.log('Audio can play through without interruption');
   notifyPopup('AUDIO_PLAYING', { station: currentStation });
 });
 
 audioPlayer.addEventListener('play', () => {
-  console.log('Audio play() called');
   // Don't notify here - wait for canplaythrough or playing event
 });
 
 audioPlayer.addEventListener('playing', () => {
-  console.log('Audio is actually playing');
   notifyPopup('AUDIO_PLAYING', { station: currentStation });
 });
 
 audioPlayer.addEventListener('pause', () => {
-  console.log('Audio paused');
   notifyPopup('AUDIO_PAUSED');
 });
 
 audioPlayer.addEventListener('ended', () => {
-  console.log('Audio ended');
   notifyPopup('AUDIO_ENDED');
 });
 
 audioPlayer.addEventListener('error', (e) => {
-  console.error('Audio error:', e);
   const error = audioPlayer.error;
   let errorMessage = 'Unknown audio error';
+  let isCorsError = false;
   
   if (error) {
     switch (error.code) {
@@ -94,18 +155,33 @@ audioPlayer.addEventListener('error', (e) => {
         errorMessage = 'Audio playback aborted';
         break;
       case error.MEDIA_ERR_NETWORK:
-        errorMessage = 'Network error loading audio';
+        // Check if this might be a CORS error
+        if (currentStation && currentStation.url) {
+          const stationDomain = new URL(currentStation.url).hostname;
+          if (!stationDomain.includes('radio-browser.info')) {
+            isCorsError = true;
+            errorMessage = `CORS error: ${currentStation.name || 'Station'} doesn't allow browser playback. Try a different stream or contact the station.`;
+          } else {
+            errorMessage = 'Network error loading audio';
+          }
+        } else {
+          errorMessage = 'Network error loading audio';
+        }
         break;
       case error.MEDIA_ERR_DECODE:
         errorMessage = 'Audio decode error';
         break;
       case error.MEDIA_ERR_SRC_NOT_SUPPORTED:
-        errorMessage = 'Audio format not supported';
+        errorMessage = `Audio format not supported: ${currentStation?.url || 'unknown URL'}`;
         break;
     }
   }
   
-  notifyPopup('AUDIO_ERROR', { error: errorMessage });
+  notifyPopup('AUDIO_ERROR', { 
+    error: errorMessage, 
+    isCorsError,
+    station: currentStation?.name || 'Unknown'
+  });
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -117,7 +193,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
   
-  console.log('Offscreen received message:', message.type);
   
   switch (message.type) {
     case 'PLAY_AUDIO':
@@ -160,7 +235,6 @@ async function playStation(station) {
     return;
   }
   
-  console.log('Playing station:', station.name, 'URL:', station.url);
   
   // Set flag to indicate we're changing stations
   isChangingStation = true;
@@ -177,7 +251,6 @@ async function playStation(station) {
         await Promise.race([playPromise, timeoutPromise]);
       } catch (e) {
         // Ignore errors from cancelled/timed out promises
-        console.log('Previous play promise cancelled/failed/timed out, continuing...', e.message);
       } finally {
         playPromise = null;
       }
@@ -206,8 +279,33 @@ async function playStation(station) {
     // Set new station
     currentStation = station;
     
-    // Check if this is an HLS stream
-    const isHLS = station.url.includes('.m3u8') || station.url.includes('m3u8');
+    // Check if this is a playlist file that needs resolution
+    const isM3U = station.url.includes('.m3u') && !station.url.includes('.m3u8');
+    const isPLS = station.url.includes('.pls');
+    
+    // Handle playlist files (M3U/PLS) by resolving them first
+    if (isM3U || isPLS) {
+      try {
+        const resolvedUrl = await resolvePlaylist(station.url);
+        
+        // Check if the resolved URL is problematic
+        if (!resolvedUrl || resolvedUrl.length < 10) {
+          throw new Error('Invalid resolved URL: ' + resolvedUrl);
+        }
+        
+        // Update the station URL with the resolved stream URL
+        currentStation = { ...station, url: resolvedUrl };
+      } catch (error) {
+        console.error('M3U playlist resolution failed:', error);
+        notifyPopup('AUDIO_ERROR', { error: `Playlist error: ${error.message}` });
+        isChangingStation = false;
+        playPromise = null;
+        return;
+      }
+    }
+    
+    // Check if this is an HLS stream (after possible M3U resolution)
+    const isHLS = currentStation.url.includes('.m3u8') || currentStation.url.includes('m3u8');
     
     if (isHLS) {
       try {
@@ -215,18 +313,15 @@ async function playStation(station) {
         await loadHLS();
         
         if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-          console.log('Using HLS.js for M3U8 stream');
           
           hls = new Hls({
             enableWorker: false,
             maxBufferLength: 10 // Reduce buffer for faster metadata
           });
         } else {
-          console.log('HLS.js not supported, falling back to native HLS');
           // Try native HLS support (Safari)
           if (audioPlayer.canPlayType('application/vnd.apple.mpegurl')) {
-            audioPlayer.src = station.url;
-            audioPlayer.crossOrigin = 'anonymous';
+            audioPlayer.src = currentStation.url;
             audioPlayer.load();
           } else {
             throw new Error('HLS not supported');
@@ -243,7 +338,6 @@ async function playStation(station) {
       // Setup HLS metadata listeners only if we have an HLS instance
       if (hls) {
         hls.on(Hls.Events.FRAG_PARSING_METADATA, (event, data) => {
-        console.log('HLS ID3 metadata received:', data);
         if (data.samples && data.samples.length > 0) {
           for (const sample of data.samples) {
             if (sample.data && sample.data.key) {
@@ -286,10 +380,8 @@ async function playStation(station) {
           console.error('HLS error:', data);
           if (data.fatal) {
             // Fallback to regular audio element
-            console.log('HLS failed, falling back to regular audio');
             try {
-              audioPlayer.src = station.url;
-              audioPlayer.crossOrigin = 'anonymous';
+              audioPlayer.src = currentStation.url;
               audioPlayer.load();
             } catch (e) {
               console.error('Error in HLS fallback:', e);
@@ -300,14 +392,13 @@ async function playStation(station) {
           }
         });
         
-        hls.loadSource(station.url);
+        hls.loadSource(currentStation.url);
         hls.attachMedia(audioPlayer);
       }
     } else {
       // Use regular audio element for non-HLS streams
       try {
-        audioPlayer.src = station.url;
-        audioPlayer.crossOrigin = 'anonymous';
+        audioPlayer.src = currentStation.url;
         audioPlayer.load();
       } catch (e) {
         console.error('Error loading audio source:', e);
@@ -327,14 +418,12 @@ async function playStation(station) {
       if (playPromise && typeof playPromise.then === 'function') {
         playPromise.then(() => {
           if (currentStation && currentStation.url === station.url) {
-            console.log('Audio started playing successfully');
             isChangingStation = false;
             playPromise = null;
           }
         }).catch(error => {
           // Don't show error if we're in the middle of changing stations or promise was cancelled
           if (isChangingStation && (error.name === 'AbortError' || currentStation?.url !== station.url)) {
-            console.log('Ignoring error during station change or after station switched');
             return;
           }
           
@@ -354,15 +443,6 @@ async function playStation(station) {
             errorMessage = error.message;
           }
           
-          console.log('Audio error details:', { 
-            name: error.name, 
-            message: error.message, 
-            code: error.code,
-            stationUrl: station.url,
-            currentStationUrl: currentStation?.url,
-            isChangingStation: isChangingStation,
-            willNotify: shouldNotify
-          });
           
           if (shouldNotify) {
             notifyPopup('AUDIO_ERROR', { error: errorMessage });
@@ -415,7 +495,6 @@ function stopAudio() {
 
 function setVolume(volume) {
   audioPlayer.volume = volume;
-  console.log(`Audio volume set to ${Math.round(volume * 100)}%`);
 }
 
 function notifyPopup(type, data = {}) {

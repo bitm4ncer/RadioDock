@@ -1,4 +1,5 @@
 importScripts('metadata-strategies.js');
+importScripts('metadataProxy.js');
 
 let isPlaying = false;
 let isPaused = false;
@@ -13,14 +14,12 @@ let metadataUpdateInterval = null;
 let metadataFetchers = new Map();
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('RadioDock extension installed');
   clearBadge();
   createContextMenus();
   loadCurrentStation();
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('Background received message:', message.type, 'from:', sender.url || sender.id);
   
   // Handle messages from popup (station control)
   if (message.type === 'PLAY_STATION' || message.type === 'PAUSE_STATION' || message.type === 'STOP_STATION' || message.type === 'SET_VOLUME') {
@@ -108,7 +107,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           title: message.title,
           timestamp: Date.now()
         };
-        console.log('Updated HLS metadata from offscreen:', currentMetadata);
         
         // Forward to popup
         forwardToPopup({
@@ -118,9 +116,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
       }
     }
-  }
-  else {
-    console.log('Unhandled message type:', message.type);
   }
   
   return true;
@@ -212,7 +207,6 @@ async function handleSetVolume(volume) {
   if (offscreenDocument) {
     await sendToOffscreen({ type: 'SET_VOLUME', volume: volume });
   }
-  console.log(`Volume set to ${Math.round(volume * 100)}% in background`);
 }
 
 async function ensureOffscreenDocument() {
@@ -261,7 +255,6 @@ async function sendToOffscreen(message) {
   try {
     // Use runtime.sendMessage - the offscreen document will filter for its messages
     chrome.runtime.sendMessage(message);
-    console.log('Sent message to offscreen:', message.type);
   } catch (error) {
     console.error('Error sending message to offscreen:', error);
   }
@@ -270,15 +263,12 @@ async function sendToOffscreen(message) {
 // Forward message to popup if it's open
 async function forwardToPopup(message) {
   try {
-    console.log('Attempting to forward message to popup:', message.type);
-    
+      
     // Try to send message directly - popup will receive it if open
     chrome.runtime.sendMessage(message, (response) => {
       if (chrome.runtime.lastError) {
-        console.log('No popup listening for message:', chrome.runtime.lastError.message);
-      } else {
-        console.log('Message successfully sent to popup:', message.type);
-      }
+        } else {
+        }
     });
     
   } catch (error) {
@@ -468,7 +458,6 @@ async function playPreviousStation() {
 function startMetadataFetching(station) {
   if (!station || !station.url) return;
   
-  console.log('Starting metadata fetching for:', station.name);
   stopMetadataFetching();
   
   try {
@@ -492,7 +481,6 @@ function startMetadataFetching(station) {
             await fetchCurrentMetadata(station);
           } else {
             // Station changed, stop this interval
-            console.log('Station changed during metadata fetch, stopping interval');
             if (metadataUpdateInterval) {
               clearInterval(metadataUpdateInterval);
               metadataUpdateInterval = null;
@@ -540,7 +528,6 @@ function stopMetadataFetching() {
       }
       
       // Log cleanup for debugging
-      console.log(`Cleaned up metadata fetcher for: ${url}`);
     } catch (error) {
       console.error(`Error cleaning up fetcher for ${url}:`, error);
     }
@@ -549,7 +536,6 @@ function stopMetadataFetching() {
   metadataFetchers.clear();
   currentMetadata = null;
   
-  console.log('All metadata fetching stopped and cleaned up');
 }
 
 // Create appropriate metadata fetcher based on station
@@ -621,15 +607,68 @@ async function fetchCurrentMetadata(station, retryCount = 0) {
   try {
     let metadata = null;
     
-    if (fetcher.type === 'nts') {
-      metadata = await fetchNTSMetadata(station);
-    } else if (fetcher.type === 'cashmere') {
-      metadata = await fetchCashmereMetadata(station);
-    } else if (fetcher.type === 'airtimepro') {
-      metadata = await fetchAirtimeProMetadata(station, fetcher.endpoint);
-    } else if (fetcher.type === 'multi') {
-      // Run metadata sources concurrently and use the first non-null, non-generic result
-      metadata = await fetchFromSourcesFast(fetcher, station);
+    // Check if this is an HLS stream - if so, continue using local processing
+    const isHLSStream = station.url && station.url.includes('.m3u8');
+    
+    if (isHLSStream) {
+      // HLS streams: use local hls.js processing (handled in offscreen.js)
+      // For now, we'll use the existing local metadata strategies for HLS
+      if (fetcher.type === 'multi') {
+        metadata = await fetchFromSourcesFast(fetcher, station);
+      }
+    } else {
+      // Non-HLS streams: use metadata proxy with fallback
+      try {
+        // Show loading state immediately for proxy requests (avoid duplicate loading states)
+        if (!currentMetadata || (currentMetadata.nowPlaying !== 'Loading...' && currentMetadata.source !== 'Server Starting')) {
+          const loadingMetadata = {
+            source: 'Loading',
+            nowPlaying: 'Loading...',
+            timestamp: Date.now()
+          };
+          currentMetadata = loadingMetadata;
+          setPlayingBadge();
+          updateContextMenus();
+        }
+        
+        metadata = await fetchNowPlayingWithFallback({
+          streamUrl: station.url,
+          stationId: station.id || station.stationuuid,
+          homepage: station.homepage,
+          country: station.countrycode || station.country
+        });
+        
+        // Handle case where proxy indicates we should use local processing
+        if (metadata && (metadata.shouldUseLocal || metadata.shouldUseFallback)) {
+          if (fetcher.type === 'nts') {
+            metadata = await fetchNTSMetadata(station);
+          } else if (fetcher.type === 'cashmere') {
+            metadata = await fetchCashmereMetadata(station);
+          } else if (fetcher.type === 'airtimepro') {
+            metadata = await fetchAirtimeProMetadata(station, fetcher.endpoint);
+          } else if (fetcher.type === 'multi') {
+            metadata = await fetchFromSourcesFast(fetcher, station);
+          }
+        }
+        
+        // Handle loading state response from proxy (server cold start)
+        if (metadata && metadata.isLoading) {
+          // Return the loading metadata to show to user
+          return;
+        }
+      } catch (proxyError) {
+        console.error('Metadata proxy failed completely, falling back to local methods:', proxyError.message || proxyError);
+        // Fallback to local methods if proxy fails completely
+        if (fetcher.type === 'nts') {
+          metadata = await fetchNTSMetadata(station);
+        } else if (fetcher.type === 'cashmere') {
+          metadata = await fetchCashmereMetadata(station);
+        } else if (fetcher.type === 'airtimepro') {
+          metadata = await fetchAirtimeProMetadata(station, fetcher.endpoint);
+        } else if (fetcher.type === 'multi') {
+          metadata = await fetchFromSourcesFast(fetcher, station);
+        }
+      }
     }
     
     // Normalize leading dash issues seen on some stations
@@ -643,24 +682,28 @@ async function fetchCurrentMetadata(station, retryCount = 0) {
       }
     }
 
-    // If no metadata found from any source (or cleaning removed it), try fallback
+    // If no metadata found from any source (or cleaning removed it), show nothing instead of station name
+    // Station name fallback disabled per user request - better to show nothing than redundant station name
     if (!metadata || !metadata.nowPlaying) {
-      metadata = await fetchFallbackMetadata(station);
-      if (metadata && metadata.nowPlaying) {
-        const cleaned = cleanNowPlaying(metadata.nowPlaying);
-        metadata.nowPlaying = cleaned;
-      }
+      metadata = null; // Show nothing instead of falling back to station name
     }
     
-    // Update metadata if changed
-    if (metadata && JSON.stringify(metadata) !== JSON.stringify(currentMetadata)) {
+    // Update metadata if changed (including null to clear loading state)
+    if (JSON.stringify(metadata) !== JSON.stringify(currentMetadata)) {
       currentMetadata = metadata;
-      console.log('Updated metadata:', metadata);
       
       // Reset retry count on success
       if (fetcher.retryCount) {
         fetcher.retryCount = 0;
       }
+      
+      // Update UI - badge should reflect playing state, not metadata presence
+      if (isPlaying) {
+        setPlayingBadge();
+      } else {
+        clearBadge();
+      }
+      updateContextMenus();
       
       // Forward to popup if open
       forwardToPopup({
@@ -686,7 +729,6 @@ async function fetchCurrentMetadata(station, retryCount = 0) {
         currentFetcher.retryCount = (currentFetcher.retryCount || 0) + 1;
       }
       
-      console.log(`Scheduling metadata retry ${retryCount + 1}/${maxRetries} in ${retryDelay}ms`);
       
       // Schedule retry with exponential backoff
       setTimeout(() => {
@@ -700,7 +742,6 @@ async function fetchCurrentMetadata(station, retryCount = 0) {
       }, retryDelay);
     } else {
       // Max retries reached or conditions changed
-      console.log('Max retries reached or station changed, stopping metadata retries');
     }
   }
 }
@@ -763,6 +804,8 @@ async function fetchFromSourcesFast(fetcher, station) {
 }
 
 // fetchNTSMetadata, fetchCashmereMetadata, cleanNowPlaying are provided by metadata-strategies.js
+// NOTE: The following metadata functions are now handled by the proxy server for non-HLS streams
+// They remain here for HLS fallback compatibility and emergency fallback scenarios
 
 // Icecast JSON status parsing with parallel endpoint support
 async function fetchIcecastMetadata(endpoints, mount) {
@@ -842,7 +885,6 @@ async function fetchIcecastMetadata(endpoints, mount) {
           error.message.includes('404') || error.message.includes('401') || error.message.includes('403') || error.message.includes('500')
         )) return null;
         // Log once per endpoint attempt
-        console.log(`Icecast endpoint failed ${statusUrl}:`, error.message || error);
         return null;
       }
     };
@@ -1092,7 +1134,6 @@ async function fetchGenericMetadata(streamUrl, station) {
           };
           
           if (isValidMetadata(metadata)) {
-            console.log(`Found generic metadata via ${endpoint}:`, metadata.nowPlaying);
             return metadata;
           }
         }
@@ -1222,35 +1263,11 @@ async function fetchRadioBrowserMetadata(station) {
   }
 }
 
-// Robust fallback system - try to extract any available metadata
+// Robust fallback system - disabled per user request to show nothing instead of station name
 async function fetchFallbackMetadata(station) {
   try {
-    // Last resort: try to get any information from the station object itself
-    if (station.name && !station.name.toLowerCase().includes('untitled') && 
-        !station.name.toLowerCase().includes('unknown')) {
-      
-      // Check if the station name might contain current track info
-      const name = station.name.trim();
-      
-      // Skip if it's just a generic station name
-      const genericPatterns = [
-        /^radio\s+\d+$/i,
-        /^fm\s+\d+/i,
-        /^station\s+/i,
-        /^\d+\.\d+\s*fm$/i
-      ];
-      
-      const isGeneric = genericPatterns.some(pattern => pattern.test(name));
-      
-      if (!isGeneric && name.length > 5) {
-        return {
-          source: 'Station Info',
-          nowPlaying: name,
-          timestamp: Date.now()
-        };
-      }
-    }
-    
+    // Station name fallback disabled - better to show nothing than redundant station name
+    // Previously returned station name as last resort, now returns null
     return null;
   } catch (error) {
     console.error('Fallback metadata fetch failed:', error);
