@@ -4,14 +4,35 @@ function cleanNowPlaying(text) {
     if (!text) return '';
     let s = String(text).trim();
     
-    // Decode HTML entities
-    s = s.replace(/&amp;/g, '&')
+    // Decode HTML entities - numeric character references first
+    s = s.replace(/&#(\d+);/g, (match, num) => String.fromCharCode(parseInt(num, 10)))
+         .replace(/&#x([0-9a-fA-F]+);/g, (match, hex) => String.fromCharCode(parseInt(hex, 16)))
+         
+         // Common named entities
+         .replace(/&amp;/g, '&')
          .replace(/&lt;/g, '<')
          .replace(/&gt;/g, '>')
          .replace(/&quot;/g, '"')
+         .replace(/&apos;/g, "'")
          .replace(/&#039;/g, "'")
          .replace(/&#x27;/g, "'")
-         .replace(/&#0*39;/g, "'");
+         .replace(/&#0*39;/g, "'")
+         
+         // Additional common entities
+         .replace(/&nbsp;/g, ' ')
+         .replace(/&copy;/g, '©')
+         .replace(/&reg;/g, '®')
+         .replace(/&trade;/g, '™')
+         .replace(/&hellip;/g, '…')
+         .replace(/&mdash;/g, '—')
+         .replace(/&ndash;/g, '–')
+         .replace(/&lsquo;/g, "'")
+         .replace(/&rsquo;/g, "'")
+         .replace(/&ldquo;/g, '"')
+         .replace(/&rdquo;/g, '"')
+         .replace(/&euro;/g, '€')
+         .replace(/&pound;/g, '£')
+         .replace(/&yen;/g, '¥');
     
     // Remove a leading dash variant like "- ", "– ", "— " (with optional leading spaces)
     s = s.replace(/^\s*[-–—]\s+/, '');
@@ -31,7 +52,7 @@ async function fetchWithTimeout(url, options = {}, timeout = 5000) {
       ...options,
       signal: controller.signal,
       headers: {
-        'User-Agent': 'RadioDock/1.0',
+        'User-Agent': 'RadioDock/1.1.0',
         ...options.headers
       }
     });
@@ -153,7 +174,7 @@ async function fetchNTSMetadata(station) {
     const response = await fetch('https://www.nts.live/api/v2/live', {
       cache: 'no-store',
       headers: {
-        'User-Agent': 'RadioDock/1.0'
+        'User-Agent': 'RadioDock/1.1.0'
       }
     });
     
@@ -212,7 +233,7 @@ async function fetchCashmereMetadata(station) {
     const response = await fetch(endpoint, {
       cache: 'no-store',
       headers: {
-        'User-Agent': 'RadioDock/1.0'
+        'User-Agent': 'RadioDock/1.1.0'
       },
       signal: controller.signal
     });
@@ -316,7 +337,7 @@ async function fetchAirtimeProMetadata(station, providedEndpoint) {
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     const response = await fetch(endpoint, {
       cache: 'no-store',
-      headers: { 'User-Agent': 'RadioDock/1.0' },
+      headers: { 'User-Agent': 'RadioDock/1.1.0' },
       signal: controller.signal
     });
     clearTimeout(timeoutId);

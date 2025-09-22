@@ -5,6 +5,30 @@ let playPromise = null;
 let hls = null;
 let hlsLoaded = false;
 
+// Stream health monitoring system
+let streamHealthMonitor = {
+  isActive: false,
+  heartbeatInterval: null,
+  lastHeartbeat: null,
+  connectionQuality: 'disconnected', // disconnected, poor, good, excellent
+  silenceDetected: false,
+  reconnectAttempts: 0,
+  maxReconnectAttempts: 3, // Reduced from 5 to 3
+  reconnectDelay: 2000, // Start with 2 seconds instead of 1
+  maxReconnectDelay: 30000, // Max 30 seconds
+  staleStreamTimeout: 60000, // Increased from 45 to 60 seconds
+  audioContext: null,
+  analyser: null,
+  silenceThreshold: -60, // dB
+  lastAudioLevel: 0,
+  lastTimeUpdate: null,
+  lastStateCheck: null, // Track when we last checked quality state
+  poorQualityDuration: 0,
+  consecutiveSilenceCount: 0,
+  maxSilenceCount: 30, // Increased from 15 to 30 (60 seconds of silence)
+  forceResetRequested: false
+};
+
 
 // Dynamically load HLS.js only when needed
 async function loadHLS() {
@@ -113,6 +137,277 @@ async function resolvePlaylist(url) {
   }
 }
 
+// Stream Health Monitoring Functions
+function initAudioContext() {
+  try {
+    // Skip audio context creation for now as it can interfere with playback
+    // We'll use simpler monitoring methods instead
+    console.log('Audio context monitoring disabled to prevent playback interference');
+  } catch (error) {
+    console.warn('Could not initialize audio context for monitoring:', error);
+  }
+}
+
+function startStreamHealthMonitoring() {
+  if (streamHealthMonitor.isActive) {
+    stopStreamHealthMonitoring();
+  }
+  
+  streamHealthMonitor.isActive = true;
+  streamHealthMonitor.lastHeartbeat = Date.now();
+  streamHealthMonitor.reconnectAttempts = 0;
+  streamHealthMonitor.consecutiveSilenceCount = 0;
+  streamHealthMonitor.forceResetRequested = false;
+  
+  // Initialize audio context for silence detection
+  initAudioContext();
+  
+  // Start heartbeat monitoring - balanced frequency for good detection without interference
+  streamHealthMonitor.heartbeatInterval = setInterval(() => {
+    performHeartbeatCheck();
+  }, 5000); // Check every 5 seconds for balanced detection
+  
+  updateConnectionQuality('good');
+}
+
+function stopStreamHealthMonitoring() {
+  streamHealthMonitor.isActive = false;
+  
+  if (streamHealthMonitor.heartbeatInterval) {
+    clearInterval(streamHealthMonitor.heartbeatInterval);
+    streamHealthMonitor.heartbeatInterval = null;
+  }
+  
+  streamHealthMonitor.reconnectAttempts = 0;
+  streamHealthMonitor.consecutiveSilenceCount = 0;
+  updateConnectionQuality('disconnected');
+}
+
+function performHeartbeatCheck() {
+  if (!streamHealthMonitor.isActive || !currentStation || !audioPlayer) {
+    return;
+  }
+  
+  const now = Date.now();
+  streamHealthMonitor.lastHeartbeat = now;
+  
+  // Check if audio element is in a valid state
+  const isPlaying = !audioPlayer.paused && !audioPlayer.ended;
+  const hasError = audioPlayer.error !== null;
+  const readyState = audioPlayer.readyState;
+  const networkState = audioPlayer.networkState;
+  
+  // Track how long we've been in problematic states
+  if (!streamHealthMonitor.lastStateCheck) {
+    streamHealthMonitor.lastStateCheck = now;
+    streamHealthMonitor.poorQualityDuration = 0;
+  }
+
+  // Determine connection quality
+  let quality = 'good';
+  let needsRecovery = false;
+  let shouldResetTimer = false;
+
+  if (hasError) {
+    quality = 'error';
+    needsRecovery = audioPlayer.error.code !== audioPlayer.error.MEDIA_ERR_ABORTED;
+  } else if (networkState === audioPlayer.NETWORK_NO_SOURCE || networkState === audioPlayer.NETWORK_EMPTY) {
+    quality = 'error';
+    needsRecovery = true;
+  } else if (readyState < 2) {
+    quality = 'poor';
+    // Poor quality for more than 20 seconds needs recovery
+    if (now - streamHealthMonitor.lastStateCheck > 20000) {
+      needsRecovery = true;
+    }
+  } else if (readyState === 2) {
+    quality = 'fair';
+    // Fair quality (can start but not enough data) for more than 5 seconds needs recovery
+    if (now - streamHealthMonitor.lastStateCheck > 5000) {
+      needsRecovery = true;
+    }
+  } else if (readyState >= 3) {
+    quality = isPlaying ? 'excellent' : 'good';
+    // Only reset timer if we've been in good state for at least 2 seconds to prevent flapping
+    if (streamHealthMonitor.connectionQuality !== 'excellent' && streamHealthMonitor.connectionQuality !== 'good') {
+      shouldResetTimer = true;
+    }
+  }
+
+  // Reset state check timer only when transitioning from bad to good state, not on every good check
+  if (shouldResetTimer) {
+    streamHealthMonitor.lastStateCheck = now;
+  }
+  
+  // Special case: audio is "playing" but readyState dropped significantly
+  if (isPlaying && readyState < 2 && now - streamHealthMonitor.lastStateCheck > 15000) {
+    // Stream recovery system working correctly - reduced logging for production
+    console.log('Stream readyState recovery triggered');
+    needsRecovery = true;
+    quality = 'error';
+  }
+  
+  updateConnectionQuality(quality);
+  
+  // Trigger recovery if needed
+  if (needsRecovery) {
+    const reason = hasError ? `Audio error: ${audioPlayer.error.code}` :
+                   readyState < 2 ? 'Stream stalled (low readyState)' :
+                   'Stream quality degraded for too long';
+    // Reduced logging for production - recovery is working correctly
+    console.log('Stream recovery triggered:', reason);
+    handleStreamIssue(reason);
+  }
+}
+
+function detectAudioSilence() {
+  // Simplified silence detection without audio context
+  // For now, we'll rely on other indicators like readyState and currentTime progress
+  return false; // Always assume audio is not silent to prevent false positives
+}
+
+function handleStreamIssue(reason) {
+  if (!streamHealthMonitor.isActive || isChangingStation) {
+    return;
+  }
+
+  // Reduced logging for production - recovery system is working correctly
+  console.log('Stream recovery initiated:', reason);
+  
+  // Check if we've exceeded retry attempts
+  if (streamHealthMonitor.reconnectAttempts >= streamHealthMonitor.maxReconnectAttempts) {
+    console.error('Max reconnection attempts reached, giving up');
+    notifyPopup('STREAM_HEALTH_CRITICAL', { 
+      reason: 'Max retry attempts exceeded',
+      attempts: streamHealthMonitor.reconnectAttempts 
+    });
+    stopStreamHealthMonitoring();
+    return;
+  }
+  
+  // Attempt automatic recovery
+  streamHealthMonitor.reconnectAttempts++;
+
+  // Faster initial recovery for "fair" status - use shorter delays
+  let delay;
+  if (streamHealthMonitor.reconnectAttempts === 1) {
+    delay = 500; // First attempt: 500ms delay for immediate recovery
+  } else {
+    delay = Math.min(
+      streamHealthMonitor.reconnectDelay * Math.pow(2, streamHealthMonitor.reconnectAttempts - 1),
+      streamHealthMonitor.maxReconnectDelay
+    );
+  }
+
+  console.log(`Attempting stream recovery (attempt ${streamHealthMonitor.reconnectAttempts}/${streamHealthMonitor.maxReconnectAttempts}) in ${delay}ms`);
+
+  updateConnectionQuality('reconnecting');
+
+  setTimeout(() => {
+    if (streamHealthMonitor.isActive && currentStation && !isChangingStation) {
+      attemptStreamReconnection();
+    }
+  }, delay);
+}
+
+function attemptStreamReconnection() {
+  console.log('Attempting stream reconnection...');
+
+  try {
+    // Force cleanup current stream
+    if (hls) {
+      try {
+        hls.destroy();
+      } catch (e) {
+        console.warn('Error destroying HLS during reconnection:', e);
+      }
+      hls = null;
+    }
+
+    // Reset audio element more efficiently for faster restart
+    audioPlayer.pause();
+    audioPlayer.currentTime = 0;
+    audioPlayer.src = '';
+    audioPlayer.load();
+
+    // Reduced delay for faster recovery (250ms instead of 500ms)
+    setTimeout(() => {
+      if (streamHealthMonitor.isActive && currentStation && !isChangingStation) {
+        console.log(`Fast recovery attempt ${streamHealthMonitor.reconnectAttempts} for ${currentStation.name}`);
+        playStation(currentStation);
+        notifyPopup('STREAM_RECOVERY_ATTEMPTED', {
+          attempt: streamHealthMonitor.reconnectAttempts
+        });
+      }
+    }, 250);
+
+  } catch (error) {
+    console.error('Error during stream reconnection:', error);
+    handleStreamIssue('Reconnection failed: ' + error.message);
+  }
+}
+
+function updateConnectionQuality(quality) {
+  if (streamHealthMonitor.connectionQuality !== quality) {
+    streamHealthMonitor.connectionQuality = quality;
+    
+    // Notify popup of quality change
+    notifyPopup('STREAM_QUALITY_CHANGED', { 
+      quality: quality,
+      attempts: streamHealthMonitor.reconnectAttempts
+    });
+  }
+}
+
+function forceResetAudioSystem() {
+  console.log('Force resetting audio system...');
+  streamHealthMonitor.forceResetRequested = true;
+  
+  // Stop monitoring
+  stopStreamHealthMonitoring();
+  
+  // Force cleanup everything
+  if (hls) {
+    try {
+      hls.destroy();
+    } catch (e) {
+      console.warn('Error destroying HLS during force reset:', e);
+    }
+    hls = null;
+  }
+  
+  // Reset audio context - be extra careful with cleanup
+  if (streamHealthMonitor.audioContext) {
+    try {
+      if (streamHealthMonitor.audioContext.state !== 'closed') {
+        streamHealthMonitor.audioContext.close();
+      }
+    } catch (e) {
+      console.warn('Error closing audio context:', e);
+    }
+    streamHealthMonitor.audioContext = null;
+    streamHealthMonitor.analyser = null;
+  }
+  
+  // Reset audio element completely
+  audioPlayer.pause();
+  audioPlayer.currentTime = 0;
+  audioPlayer.src = '';
+  audioPlayer.load();
+  
+  // Clear all promises and state
+  playPromise = null;
+  isChangingStation = false;
+  
+  // Reset monitoring state
+  streamHealthMonitor.reconnectAttempts = 0;
+  streamHealthMonitor.consecutiveSilenceCount = 0;
+  streamHealthMonitor.forceResetRequested = false;
+  
+  // Notify that reset is complete
+  notifyPopup('AUDIO_SYSTEM_RESET');
+}
+
 audioPlayer.addEventListener('loadstart', () => {
   notifyPopup('AUDIO_BUFFERING', { station: currentStation });
 });
@@ -186,46 +481,138 @@ audioPlayer.addEventListener('error', (e) => {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Only handle audio-related messages in offscreen document
-  const audioMessages = ['PLAY_AUDIO', 'PAUSE_AUDIO', 'STOP_AUDIO', 'GET_AUDIO_STATE', 'SET_VOLUME'];
-  
+  const audioMessages = ['PLAY_AUDIO', 'PAUSE_AUDIO', 'STOP_AUDIO', 'GET_AUDIO_STATE', 'SET_VOLUME', 'FORCE_RESET_AUDIO', 'PERFORM_HEALTH_CHECK'];
+
   if (!audioMessages.includes(message.type)) {
     // Not for us, ignore silently
-    return;
+    return false; // Don't keep channel open for messages we don't handle
   }
-  
-  
-  switch (message.type) {
-    case 'PLAY_AUDIO':
-      playStation(message.station);
-      sendResponse({ success: true });
-      break;
-    
-    case 'PAUSE_AUDIO':
-      pauseAudio();
-      sendResponse({ success: true });
-      break;
-    
-    case 'STOP_AUDIO':
-      stopAudio();
-      sendResponse({ success: true });
-      break;
-    
-    case 'GET_AUDIO_STATE':
-      sendResponse({
-        isPlaying: !audioPlayer.paused,
-        currentStation: currentStation,
-        currentTime: audioPlayer.currentTime,
-        duration: audioPlayer.duration
-      });
-      break;
-    
-    case 'SET_VOLUME':
-      setVolume(message.volume);
-      sendResponse({ success: true });
-      break;
+
+  // Handle async operations properly
+  const handleAsync = async () => {
+    try {
+      switch (message.type) {
+        case 'PLAY_AUDIO':
+          // Handle async playStation function properly
+          await playStation(message.station);
+          sendResponse({ success: true });
+          break;
+
+        case 'PAUSE_AUDIO':
+          pauseAudio();
+          sendResponse({ success: true });
+          break;
+
+        case 'STOP_AUDIO':
+          stopAudio();
+          sendResponse({ success: true });
+          break;
+
+        case 'GET_AUDIO_STATE':
+          sendResponse({
+            isPlaying: !audioPlayer.paused,
+            currentStation: currentStation,
+            currentTime: audioPlayer.currentTime,
+            duration: audioPlayer.duration,
+            connectionQuality: streamHealthMonitor.connectionQuality,
+            reconnectAttempts: streamHealthMonitor.reconnectAttempts
+          });
+          break;
+
+        case 'SET_VOLUME':
+          setVolume(message.volume);
+          sendResponse({ success: true });
+          break;
+
+        case 'FORCE_RESET_AUDIO':
+          forceResetAudioSystem();
+          sendResponse({ success: true });
+          break;
+
+        case 'PERFORM_HEALTH_CHECK':
+          // Perform health check when requested by background script alarm
+          if (streamHealthMonitor.isActive) {
+            performHeartbeatCheck();
+          }
+          sendResponse({ success: true });
+          break;
+
+        default:
+          sendResponse({ success: false, error: 'Unknown message type' });
+          break;
+      }
+    } catch (error) {
+      console.error('Error handling message in offscreen:', error);
+      // Try to send error response if channel is still open
+      try {
+        sendResponse({ success: false, error: error.message });
+      } catch (responseError) {
+        // Channel may be closed, ignore
+        console.warn('Could not send error response, channel may be closed:', responseError);
+      }
+    }
+  };
+
+  // For PLAY_AUDIO, we need async handling
+  if (message.type === 'PLAY_AUDIO') {
+    handleAsync();
+    return true; // Keep channel open for async response
+  } else {
+    // For all other messages, handle synchronously
+    try {
+      switch (message.type) {
+        case 'PAUSE_AUDIO':
+          pauseAudio();
+          sendResponse({ success: true });
+          break;
+
+        case 'STOP_AUDIO':
+          stopAudio();
+          sendResponse({ success: true });
+          break;
+
+        case 'GET_AUDIO_STATE':
+          sendResponse({
+            isPlaying: !audioPlayer.paused,
+            currentStation: currentStation,
+            currentTime: audioPlayer.currentTime,
+            duration: audioPlayer.duration,
+            connectionQuality: streamHealthMonitor.connectionQuality,
+            reconnectAttempts: streamHealthMonitor.reconnectAttempts
+          });
+          break;
+
+        case 'SET_VOLUME':
+          setVolume(message.volume);
+          sendResponse({ success: true });
+          break;
+
+        case 'FORCE_RESET_AUDIO':
+          forceResetAudioSystem();
+          sendResponse({ success: true });
+          break;
+
+        case 'PERFORM_HEALTH_CHECK':
+          if (streamHealthMonitor.isActive) {
+            performHeartbeatCheck();
+          }
+          sendResponse({ success: true });
+          break;
+
+        default:
+          sendResponse({ success: false, error: 'Unknown message type' });
+          break;
+      }
+    } catch (error) {
+      console.error('Error handling message in offscreen:', error);
+      try {
+        sendResponse({ success: false, error: error.message });
+      } catch (responseError) {
+        console.warn('Could not send error response, channel may be closed:', responseError);
+      }
+    }
+    return false; // Synchronous response for all other messages
   }
-  
-  return true;
 });
 
 async function playStation(station) {
@@ -420,6 +807,12 @@ async function playStation(station) {
           if (currentStation && currentStation.url === station.url) {
             isChangingStation = false;
             playPromise = null;
+            // Start health monitoring when playback begins - wait longer for stream to stabilize
+            setTimeout(() => {
+              if (!audioPlayer.paused && currentStation && !isChangingStation) {
+                startStreamHealthMonitoring();
+              }
+            }, 15000); // Wait 15 seconds for stream to fully stabilize
           }
         }).catch(error => {
           // Don't show error if we're in the middle of changing stations or promise was cancelled
@@ -473,6 +866,9 @@ function pauseAudio() {
   isChangingStation = false;
   playPromise = null;
   
+  // Stop health monitoring when paused
+  stopStreamHealthMonitoring();
+  
   if (!audioPlayer.paused) {
     audioPlayer.pause();
   }
@@ -481,6 +877,9 @@ function pauseAudio() {
 function stopAudio() {
   isChangingStation = false;
   playPromise = null;
+  
+  // Stop health monitoring when stopped
+  stopStreamHealthMonitoring();
   
   // Cleanup HLS instance
   if (hls) {
@@ -502,8 +901,24 @@ function notifyPopup(type, data = {}) {
     chrome.runtime.sendMessage({
       type: type,
       ...data
+    }, (response) => {
+      // Handle response or check for errors
+      if (chrome.runtime.lastError) {
+        // Service worker may be dormant or popup closed, this is normal
+        // Silently ignore common message channel errors during dormancy
+        const ignoredErrors = [
+          'Receiving end does not exist',
+          'message channel closed',
+          'asynchronous response'
+        ];
+
+        if (!ignoredErrors.some(err => chrome.runtime.lastError.message.includes(err))) {
+          console.warn('Message send warning:', chrome.runtime.lastError.message);
+        }
+      }
     });
   } catch (error) {
+    // Runtime error during send (e.g., extension context invalidated)
     console.error('Error sending message to popup:', error);
   }
 }

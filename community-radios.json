@@ -24,7 +24,7 @@
       "favicon": "https://cdn.sanity.io/images/0smxd0yv/production/e21c49aec89f19279ac0b5d37a283e0a5be838c1-500x500.svg?w=500&h=500&fm=png&fit=max&auto=format",
       "homepage": "https://callshopradio.com/",
       "id": "8f18579b-ffe4-49cb-970c-16712b154392",
-      "name": "Callshop Radio Düsseldorf & Leipzig",
+      "name": "Callshop Radio",
       "url": "https://icecast.callshopradio.com/callshopradio"
     },
     {
@@ -58,6 +58,14 @@
       "id": "bae70c5c-9f3f-42fc-a83d-6c13920590e0",
       "name": "Kiosk Radio",
       "url": "https://kioskradiobxl.out.airtime.pro/kioskradiobxl_b"
+    },
+    {
+      "countrycode": "FR",
+      "favicon": "https://lyl.live/favicon.ico",
+      "homepage": "https://lyl.live/",
+      "id": "lyl-radio-london-2025",
+      "name": "LYL Radio",
+      "url": "https://icecast.lyl.live/live"
     },
     {
       "countrycode": "DE",

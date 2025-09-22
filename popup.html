@@ -172,15 +172,25 @@
   <div id="infoModal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
-        <h3>RadioDock v.1.0</h3>
+        <img src="logo/Logo_Text.svg" alt="RadioDock" class="dock-logo-modal"><h3> v.1.1.0</h3>
         <button id="closeInfoModalBtn" class="modal-close-btn">×</button>
       </div>
       <div class="modal-body">
+        <!-- Stream Status Section -->
+        <div class="stream-status-section">
+          <div>
+            <span style="font-weight: 500; font-size: 13px;">Stream Status:</span>
+            <span id="streamQualityIndicator" class="stream-quality-indicator" style="font-size: 12px; color: #666;">Disconnected</span>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: flex-start;">
+            <button id="resetAudioBtn" class="btn-audio-reset" title="Reset audio system (use if playback is stuck)">Audio Reset</button>
+          </div>
+        </div>
+        
         <p style="margin-bottom: 16px;">RadioDock is a Chromium Browser extension for discovering, playing and managing your favorite radio stations from around the world.</p>
-        <p style="margin-bottom: 16px;">This extension integrates with the  <a href="https://www.radio-browser.info" target="_blank" class="text-link"><strong>Radio Browser</strong> </a>community database, which provides access to thousands of radio stations worldwide through their open API.</p>
+        <p style="margin-bottom: 16px;">This extension uses the  <a href="https://www.radio-browser.info" target="_blank" class="text-link"><strong>Radio Browser</strong> </a>community database, which provides access to thousands of radio stations worldwide through their open API.</p>
  
         <div class="modal-links">
-     
           <a href="https://buymeacoffee.com/bitmancer" target="_blank" class="modal-link">
             Buy me a coffee
           </a>

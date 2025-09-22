@@ -96,6 +96,8 @@ class RadioDock {
     this.infoModal = document.getElementById('infoModal');
     this.closeInfoModalBtn = document.getElementById('closeInfoModalBtn');
     this.dockLogo = document.querySelector('.dock-logo');
+    this.streamQualityIndicator = document.getElementById('streamQualityIndicator');
+    this.resetAudioBtn = document.getElementById('resetAudioBtn');
     
     // Confirmation modal elements
     this.confirmModal = document.getElementById('confirmModal');
@@ -202,6 +204,7 @@ class RadioDock {
     // Info modal events
     this.dockLogo.addEventListener('click', () => this.showInfoModal());
     this.closeInfoModalBtn.addEventListener('click', () => this.hideInfoModal());
+    this.resetAudioBtn.addEventListener('click', () => this.handleResetAudio());
     
     // Click outside info modal to close
     this.infoModal.addEventListener('click', (e) => {
@@ -242,6 +245,16 @@ class RadioDock {
         this.handleRuntimeMessage(message);
         sendResponse({ received: true }); // Acknowledge receipt
         return true; // Keep message channel open
+      });
+    }
+
+    // Connect to background script for visibility tracking (smart metadata management)
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.connect) {
+      this.backgroundPort = chrome.runtime.connect({ name: 'popup' });
+
+      // Handle port disconnect
+      this.backgroundPort.onDisconnect.addListener(() => {
+        console.log('Background port disconnected');
       });
     }
   }
@@ -492,6 +505,10 @@ class RadioDock {
           if (response.metadata) {
             this.updateMetadataDisplay(response.metadata);
           }
+          // Update stream quality if available
+          if (response.connectionQuality) {
+            this.updateStreamQuality(response.connectionQuality, response.reconnectAttempts);
+          }
         }
       }
     } catch (error) {
@@ -610,6 +627,7 @@ class RadioDock {
         this.setBufferingState(true);
         this.isPlaying = false; // Not actually playing yet
         this.updatePlayerUI();
+        this.updateStreamQuality('buffering');
         break;
       case 'AUDIO_PLAYING':
         // Only update to playing if we're not manually paused
@@ -624,12 +642,14 @@ class RadioDock {
         this.setBufferingState(false);
         this.isPlaying = false;
         this.updatePlayerUI();
+        this.updateStreamQuality('disconnected');
         break;
       case 'AUDIO_ERROR':
         this.setBufferingState(false);
         this.isPlaying = false;
         this.manuallyPaused = false; // Clear manual pause on error
         this.updatePlayerUI();
+        this.updateStreamQuality('error');
         this.showToast(message.error || 'Audio playback error', 'error');
         break;
       case 'STATION_CHANGED':
@@ -642,6 +662,58 @@ class RadioDock {
       case 'METADATA_UPDATE':
         // Handle now playing metadata updates
         this.updateMetadataDisplay(message.metadata);
+        break;
+      case 'STREAM_QUALITY_CHANGED':
+        // Update stream quality indicator
+        this.updateStreamQuality(message.quality, message.attempts);
+        break;
+      case 'STREAM_HEALTH_CRITICAL':
+        // Handle critical stream issues
+        this.updateStreamQuality('error');
+        this.showToast('Stream connection issues detected', 'warning');
+        break;
+      case 'STREAM_RECOVERY_ATTEMPTED':
+        // Show recovery attempt
+        this.updateStreamQuality('reconnecting', message.attempt);
+        this.showToast(`Attempting stream recovery (${message.attempt}/5)`, 'info');
+        break;
+      case 'AUDIO_SYSTEM_RESET':
+        // Handle audio system reset
+        this.setBufferingState(false);
+        this.isPlaying = false;
+        this.manuallyPaused = false;
+        this.updatePlayerUI();
+        this.updateStreamQuality('disconnected');
+        this.showToast('Audio system reset', 'success');
+        break;
+      case 'AUDIO_SYSTEM_RESET_COMPLETE':
+        // Handle complete system reset from background
+        this.setBufferingState(false);
+        this.isPlaying = false;
+        this.manuallyPaused = false;
+        this.updatePlayerUI();
+        this.updateStreamQuality('disconnected');
+        this.showToast('Audio system fully reset', 'success');
+        break;
+      case 'STATE_DESYNC_DETECTED':
+        // Handle state desync issues
+        this.setBufferingState(false);
+        this.isPlaying = false;
+        this.manuallyPaused = false;
+        this.updatePlayerUI();
+        this.updateStreamQuality('error');
+        this.showToast('Playback state corrected', 'warning');
+        break;
+      case 'STATE_RECOVERY_DETECTED':
+        // Handle state recovery after desync
+        if (this.currentStation) {
+          this.setBufferingState(false);
+          this.isPlaying = true;
+          this.manuallyPaused = false;
+          this.updatePlayerUI();
+          this.updateStreamQuality('good');
+          this.showToast('Playback restored', 'success');
+        }
         break;
     }
   }
@@ -1015,7 +1087,7 @@ class RadioDock {
       
       const response = await fetch(url, {
         headers: {
-          'User-Agent': 'RadioDock/1.0'
+          'User-Agent': 'RadioDock/1.1.0'
         }
       });
       
@@ -1901,6 +1973,83 @@ class RadioDock {
       return false;
     }
   }
+
+  // Handle audio system reset
+  async handleResetAudio() {
+    try {
+      // Show confirmation dialog
+      this.showConfirmModal(
+        'Reset Audio System',
+        'This will force reset the entire audio system. Use this if playback is stuck and won\'t stop.\n\nAre you sure you want to continue?',
+        async () => {
+          this.showToast('Resetting audio system...', 'info');
+          
+          // Send reset command to background script
+          if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+            await chrome.runtime.sendMessage({ type: 'FORCE_RESET_AUDIO_SYSTEM' });
+          }
+          
+          // Update UI immediately
+          this.setBufferingState(false);
+          this.isPlaying = false;
+          this.manuallyPaused = false;
+          this.updatePlayerUI();
+          this.updateStreamQuality('disconnected');
+        }
+      );
+    } catch (error) {
+      console.error('Error resetting audio system:', error);
+      this.showToast('Error resetting audio system', 'error');
+    }
+  }
+
+  // Update stream quality indicator
+  updateStreamQuality(quality, attempts = 0) {
+    if (!this.streamQualityIndicator) return;
+    
+    let displayText = 'Disconnected';
+    let color = '#666';
+    
+    switch (quality) {
+      case 'excellent':
+        displayText = 'Excellent';
+        color = '#4CAF50'; // Green
+        break;
+      case 'good':
+        displayText = 'Good';
+        color = '#8BC34A'; // Light green
+        break;
+      case 'fair':
+        displayText = 'Fair';
+        color = '#FF9800'; // Orange
+        break;
+      case 'poor':
+        displayText = 'Poor';
+        color = '#FF5722'; // Red orange
+        break;
+      case 'reconnecting':
+        displayText = attempts > 0 ? `Reconnecting (${attempts}/5)` : 'Reconnecting';
+        color = '#2196F3'; // Blue
+        break;
+      case 'buffering':
+        displayText = 'Buffering';
+        color = '#9E9E9E'; // Grey
+        break;
+      case 'error':
+        displayText = 'Error';
+        color = '#F44336'; // Red
+        break;
+      case 'disconnected':
+      default:
+        displayText = 'Disconnected';
+        color = '#666';
+        break;
+    }
+    
+    this.streamQualityIndicator.textContent = displayText;
+    this.streamQualityIndicator.style.color = color;
+  }
+
 }
 
 // Initialize the application

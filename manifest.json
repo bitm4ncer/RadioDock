@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "RadioDock",
-  "version": "1.0.6",
+  "version": "1.1.0",
   "description": "Play and organize your favorite radio stations. Explore 50,000+ stations including community radios and save them into custom lists.",
   "icons": {
     "16": "logo/icon-16.png",
@@ -23,7 +23,8 @@
   "permissions": [
     "storage",
     "offscreen",
-    "contextMenus"
+    "contextMenus",
+    "alarms"
   ],
   "host_permissions": [
     "https://*.radio-browser.info/*",

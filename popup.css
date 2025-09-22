@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+@import url('fonts/inter.css');
 
 :root {
   /* Base */
@@ -526,6 +526,11 @@ body::-webkit-scrollbar-thumb {
   filter: brightness(0) saturate(100%) invert(82%) sepia(0%) saturate(0%) hue-rotate(168deg) brightness(95%) contrast(82%);
   cursor: pointer;
   transition: opacity 0.2s ease;
+}
+
+.dock-logo-modal{
+  width: auto;
+  height: 30px;
 }
 
 .dock-logo:hover {
@@ -1354,7 +1359,7 @@ body.search-active #searchInput {
   background: var(--bg-dark);
   border-radius: 12px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-  width: 300px;
+  width: 315px;
   max-width: 90vw;
   animation: modalSlide 0.3s ease;
 }
@@ -1426,6 +1431,14 @@ body.search-active #searchInput {
   color: var(--text);
   font-size: 13px;
   box-sizing: border-box;
+}
+
+.stream-status-section{
+  margin-bottom: 15px;
+}
+
+.btn-audio-reset{
+  margin-top: 5px;
 }
 
 .modal-body input:focus {
@@ -1509,4 +1522,22 @@ body.search-active #searchInput {
 .modal-link:hover {
   background-color: var(--red);
   color: var(--text);
+}
+
+/* Audio System Reset Button */
+.btn-audio-reset {
+  padding: 1px 12px;
+  font-size: 11px;
+  background: var(--accent-hover);
+  color: var(--text);
+  border: none;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.btn-audio-reset:hover {
+  background: var(--red);
+  color: white;
 }
