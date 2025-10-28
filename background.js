@@ -1547,7 +1547,7 @@ async function fetchIcecastMetadata(endpoints, mount) {
       try {
         const response = await fetch(statusUrl, {
           cache: 'no-store',
-          headers: { 'User-Agent': 'RadioDock/1.1.0' },
+          headers: { 'User-Agent': 'RadioDock/1.1.1' },
           signal: controller.signal
         });
         clearTimeout(timeoutId);
@@ -1637,7 +1637,7 @@ async function fetchICYMetadata(streamUrl) {
       method: 'GET',
       headers: {
         'Icy-MetaData': '1',
-        'User-Agent': 'RadioDock/1.1.0',
+        'User-Agent': 'RadioDock/1.1.1',
         'Range': 'bytes=0-8192' // Only fetch first 8KB to find metadata
       },
       signal: controller.signal
@@ -1894,7 +1894,7 @@ async function fetchHLSMetadata(streamUrl) {
     const response = await fetch(streamUrl, {
       method: 'GET',
       headers: {
-        'User-Agent': 'RadioDock/1.1.0'
+        'User-Agent': 'RadioDock/1.1.1'
       },
       signal: controller.signal
     });
@@ -1953,7 +1953,7 @@ async function fetchRadioBrowserMetadata(station) {
     const response = await fetch(`https://de1.api.radio-browser.info/json/stations/byuuid/${station.id}`, {
       cache: 'no-store',
       headers: {
-        'User-Agent': 'RadioDock/1.1.0'
+        'User-Agent': 'RadioDock/1.1.1'
       }
     });
     

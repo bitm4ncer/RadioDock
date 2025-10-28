@@ -52,7 +52,7 @@ async function fetchWithTimeout(url, options = {}, timeout = 5000) {
       ...options,
       signal: controller.signal,
       headers: {
-        'User-Agent': 'RadioDock/1.1.0',
+        'User-Agent': 'RadioDock/1.1.1',
         ...options.headers
       }
     });
@@ -174,7 +174,7 @@ async function fetchNTSMetadata(station) {
     const response = await fetch('https://www.nts.live/api/v2/live', {
       cache: 'no-store',
       headers: {
-        'User-Agent': 'RadioDock/1.1.0'
+        'User-Agent': 'RadioDock/1.1.1'
       }
     });
     
@@ -233,7 +233,7 @@ async function fetchCashmereMetadata(station) {
     const response = await fetch(endpoint, {
       cache: 'no-store',
       headers: {
-        'User-Agent': 'RadioDock/1.1.0'
+        'User-Agent': 'RadioDock/1.1.1'
       },
       signal: controller.signal
     });
@@ -337,7 +337,7 @@ async function fetchAirtimeProMetadata(station, providedEndpoint) {
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     const response = await fetch(endpoint, {
       cache: 'no-store',
-      headers: { 'User-Agent': 'RadioDock/1.1.0' },
+      headers: { 'User-Agent': 'RadioDock/1.1.1' },
       signal: controller.signal
     });
     clearTimeout(timeoutId);

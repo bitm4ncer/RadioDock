@@ -20,14 +20,27 @@ class RadioDock {
     this.isBuffering = false;
     this.manuallyPaused = false;
     this.searchTimeout = null;
-    this.apiBaseUrl = 'https://de1.api.radio-browser.info';
-    
+
+    // Radio Browser API servers - will be auto-discovered
+    // Fallback list used only if discovery fails
+    this.apiServers = [
+      'https://de2.api.radio-browser.info',  // Germany - Primary (tested working)
+      'https://fi1.api.radio-browser.info',  // Finland - Secondary (tested working)
+      'https://de1.api.radio-browser.info'   // Germany - Fallback
+    ];
+    this.currentServerIndex = 0;
+    this.apiBaseUrl = this.apiServers[0];
+    this.serverDiscoveryComplete = false;
+
     this.initializeElements();
     this.attachEventListeners();
-    
+
+    // Discover available API servers in background (non-blocking)
+    this.discoverApiServers();
+
     // Load data immediately - Chrome APIs should be available when popup opens
     this.loadStoredData();
-    
+
     // Periodic sync to ensure state consistency during long playback
     this.setupPeriodicSync();
   }
@@ -1048,56 +1061,155 @@ class RadioDock {
   
   handleSearchInput(query) {
     clearTimeout(this.searchTimeout);
-    
+
     if (query.trim().length === 0) {
       this.searchFilters.style.display = 'none';
       this.hideSearchResults();
       return;
     }
-    
+
     this.searchFilters.style.display = 'flex';
     this.showSearchResults();
-    
+
     this.searchTimeout = setTimeout(() => {
       this.searchStations(query.trim());
     }, 500);
   }
+
+  // Discover available API servers dynamically
+  async discoverApiServers() {
+    try {
+      // Try to fetch server list from a known working server
+      const discoveryUrl = 'https://de2.api.radio-browser.info/json/servers';
+
+      const response = await fetch(discoveryUrl, {
+        signal: AbortSignal.timeout(5000) // 5 second timeout for discovery
+      });
+
+      if (!response.ok) {
+        console.warn('Server discovery failed, using fallback list');
+        return;
+      }
+
+      const servers = await response.json();
+
+      // Extract unique server names (filter out IPv6 duplicates)
+      const serverNames = new Set();
+      servers.forEach(server => {
+        if (server.name) {
+          serverNames.add(`https://${server.name}`);
+        }
+      });
+
+      // Convert to array and test each server for availability
+      const availableServers = [];
+      const serverArray = Array.from(serverNames);
+
+      // Quick health check on each server (parallel with timeout)
+      const healthChecks = serverArray.map(async (server) => {
+        try {
+          const healthResponse = await fetch(`${server}/json/countries/DE`, {
+            signal: AbortSignal.timeout(3000)
+          });
+          if (healthResponse.ok) {
+            return server;
+          }
+        } catch (error) {
+          console.warn(`Server ${server} failed health check:`, error.message);
+        }
+        return null;
+      });
+
+      const results = await Promise.allSettled(healthChecks);
+
+      // Collect healthy servers
+      results.forEach(result => {
+        if (result.status === 'fulfilled' && result.value) {
+          availableServers.push(result.value);
+        }
+      });
+
+      // Update server list if we found working servers
+      if (availableServers.length > 0) {
+        this.apiServers = availableServers;
+        this.apiBaseUrl = this.apiServers[0];
+        this.currentServerIndex = 0;
+        this.serverDiscoveryComplete = true;
+        console.log(`✓ Discovered ${availableServers.length} working API servers:`, availableServers);
+      } else {
+        console.warn('No healthy servers found, using fallback list');
+      }
+
+    } catch (error) {
+      console.warn('Server discovery error, using fallback list:', error.message);
+    }
+  }
+
+  // Fetch with automatic server fallback
+  async fetchWithFallback(endpoint, options = {}) {
+    let lastError = null;
+
+    // Try each server in sequence
+    for (let i = 0; i < this.apiServers.length; i++) {
+      const serverIndex = (this.currentServerIndex + i) % this.apiServers.length;
+      const server = this.apiServers[serverIndex];
+
+      try {
+        const url = `${server}${endpoint}`;
+        const response = await fetch(url, {
+          ...options,
+          signal: AbortSignal.timeout(10000) // 10 second timeout
+        });
+
+        if (response.ok) {
+          // Success! Update the current server index for next time
+          this.currentServerIndex = serverIndex;
+          return response;
+        }
+
+        lastError = new Error(`HTTP ${response.status} from ${server}`);
+      } catch (error) {
+        lastError = error;
+        console.warn(`Failed to fetch from ${server}:`, error.message);
+      }
+    }
+
+    // All servers failed
+    throw lastError || new Error('All API servers failed');
+  }
   
   async searchStations(query) {
     if (!query) return;
-    
+
     this.showSearchLoading(true);
-    
+
     try {
-      let url;
-      
-      // Build URL based on selected filter
+      let endpoint;
+
+      // Build endpoint based on selected filter
       switch (this.currentSearchFilter) {
         case 'tag':
-          url = `${this.apiBaseUrl}/json/stations/bytag/${encodeURIComponent(query)}?hidebroken=true&limit=50&order=clickcount&reverse=true`;
+          endpoint = `/json/stations/bytag/${encodeURIComponent(query)}?hidebroken=true&limit=50&order=clickcount&reverse=true`;
           break;
         case 'country':
-          url = `${this.apiBaseUrl}/json/stations/bycountry/${encodeURIComponent(query)}?hidebroken=true&limit=50&order=clickcount&reverse=true`;
+          endpoint = `/json/stations/bycountry/${encodeURIComponent(query)}?hidebroken=true&limit=50&order=clickcount&reverse=true`;
           break;
         case 'name':
         default:
-          url = `${this.apiBaseUrl}/json/stations/search?name=${encodeURIComponent(query)}&hidebroken=true&limit=50&order=clickcount&reverse=true`;
+          endpoint = `/json/stations/search?name=${encodeURIComponent(query)}&hidebroken=true&limit=50&order=clickcount&reverse=true`;
           break;
       }
-      
-      const response = await fetch(url, {
+
+      // Use fetchWithFallback to automatically try multiple servers
+      const response = await this.fetchWithFallback(endpoint, {
         headers: {
-          'User-Agent': 'RadioDock/1.1.0'
+          'User-Agent': 'RadioDock/1.1.1'
         }
       });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      
+
       const stations = await response.json();
       this.renderSearchResults(stations);
-      
+
     } catch (error) {
       console.error('Search error:', error);
       this.showSearchError(true);

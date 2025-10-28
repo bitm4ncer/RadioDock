@@ -67,7 +67,7 @@ async function fetchNowPlaying({ streamUrl, stationId, homepage, country }) {
       const response = await fetch(url, {
         method: 'GET',
         headers: {
-          'User-Agent': 'RadioDock/1.1.0',
+          'User-Agent': 'RadioDock/1.1.1',
           'Cache-Control': 'no-store'
         },
         signal: controller.signal
