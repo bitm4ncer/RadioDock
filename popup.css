@@ -17,6 +17,10 @@
 
   --red: #cd0025;
   --green: #22c55e;
+
+  /* Backdrop behind transparent station favicons. Off-white rather than
+     pure white so all-white logo marks keep a visible edge. */
+  --logo-chip-bg: #E2E1DD;
 }
 
 
@@ -254,7 +258,7 @@ body::-webkit-scrollbar-thumb {
   border: solid 2px var(--bg-light);
   border-radius: 50%;
   object-fit: cover;
-  background-color: var(--text);
+  background-color: var(--logo-chip-bg);
   cursor: pointer;
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
@@ -953,7 +957,7 @@ body.search-active .favorites-list {
   object-fit: cover;
   margin-right: 12px;
   flex-shrink: 0;
-  background-color: white;
+  background-color: var(--logo-chip-bg);
 }
 
 .station-item-initials {
